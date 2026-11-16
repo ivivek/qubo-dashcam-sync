@@ -17,7 +17,7 @@ CAM_STATIC_IP=192.168.1.200
 # ""  = GPS + state files only
 # --images = + timelapse/event photos (recommended, ~6.5 MB per driving hour)
 # --images --video = + video (~260 MB/h; usually won't finish in the garage window)
-SYNC_ARGS=--images
+SYNC_ARGS=
 DEST=/home/pi/dashcam/footage
 DEST_OWNER=pi:pi
 

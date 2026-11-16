@@ -1,0 +1,15 @@
+[Unit]
+Description=Dashcam garage sync watcher
+After=NetworkManager.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 __DIR__/car_watch.py
+WorkingDirectory=__DIR__
+Restart=always
+RestartSec=30
+User=root
+
+[Install]
+WantedBy=multi-user.target

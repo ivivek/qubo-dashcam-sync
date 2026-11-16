@@ -1,0 +1,41 @@
+# Copy to dashcam.conf (chmod 600 - contains secrets) and fill in.
+
+# --- Camera ---
+CAM_SSID=DashCam GPS_<MAC>
+# Camera Wi-Fi password (factory default is in the camera manual)
+CAM_PASSWORD=
+CAM_IP=192.168.1.1
+# Wi-Fi adapter used to join the camera. If the Pi's home connection is also
+# on this adapter, the Pi drops home Wi-Fi during sync and reconnects after.
+# A 2nd USB Wi-Fi adapter (wlan1) avoids that and can be placed nearer the car.
+CAM_IFACE=wlan0
+# Fixed Pi address on the camera network - skips DHCP (faster, avoids
+# "IP configuration could not be reserved"). Empty = ask the camera via DHCP.
+CAM_STATIC_IP=192.168.1.200
+
+# --- What to sync ---
+# ""  = GPS + state files only
+# --images = + timelapse/event photos (recommended, ~6.5 MB per driving hour)
+# --images --video = + video (~260 MB/h; usually won't finish in the garage window)
+SYNC_ARGS=--images
+DEST=/home/pi/dashcam/footage
+DEST_OWNER=pi:pi
+
+# --- Timing (seconds) ---
+SCAN_INTERVAL=5
+RESYNC_INTERVAL=20
+SYNC_TIMEOUT=900
+COOLDOWN=180
+
+# --- Telegram ---
+# Create a bot with @BotFather -> token. Send the bot any message, then open
+# https://api.telegram.org/bot<TOKEN>/getUpdates and copy "chat":{"id":...}
+TELEGRAM_TOKEN=
+TELEGRAM_CHAT_ID=
+# 1 = also send the latest GPX track file to Telegram (your location leaves the Pi)
+TELEGRAM_SEND_GPX=0
+# 1 = also send the summary when a session found nothing new
+NOTIFY_EMPTY=0
+# debug   = 🟢 watcher started, 📡 camera detected, 🔗 joined, ✅/❌ transfer, 🔌 disconnected, + summary
+# summary = only the end-of-session summary (switch to this once everything works)
+NOTIFY_LEVEL=debug

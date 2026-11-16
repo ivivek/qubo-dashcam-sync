@@ -1,0 +1,18 @@
+# Private camera data (real GPS, frames, video) - never commit
+footage/
+explore-*/
+sanitized*/
+probe-*.log
+*.log
+*.gps
+*.gpx
+*.mp4
+*.jpeg
+*.jpg
+
+# Secrets / runtime state
+dashcam.conf
+state/
+
+__pycache__/
+*.pyc

@@ -76,6 +76,38 @@ To try a single scan by hand, stop the service and run `sudo python3 ~/dev/dashc
 | `SCAN_INTERVAL` / `RESYNC_INTERVAL` / `COOLDOWN` | 5 / 20 / 180 s | |
 | `TELEGRAM_SEND_GPX` | `0` | `1` also uploads the GPX track to Telegram, so your location leaves the Pi. |
 
+### Video clips on request (Telegram `clip`)
+
+Video isn't synced automatically: it doesn't fit in the garage window. To keep a specific moment (a
+traffic violation, wildlife on the road, …), message the bot:
+
+| You send | Meaning |
+|---|---|
+| `clip` | The moment you sent it |
+| `clip 08:42` / `clip 08:42:30` | Today (yesterday if that time is still ahead) |
+| `clip yesterday 18:10` / `clip 15-Nov 18:10` | Another day |
+| `clip 08:42 5m` | 5 minutes centred on 08:42 (default ±1 min, max `30m`) |
+| `clip 08:42 deer crossing` | Text after the time is a label |
+| `clips` / `clip cancel 3` | List requests / drop #3 |
+
+1. The Pi replies straight away with the time it understood. Requests go into
+   `state/wanted_clips.json`.
+2. When the car is next home, the Pi sends **🎬 Clip #3 due: keep the ignition ON ~1 min**. The
+   requested clips are fetched before the GPS sync, and only clips whose start time falls in the
+   window are downloaded (~4.4 MB per minute of video).
+3. You then get one of:
+   - **✅ ready**, with the folder, plus "OK to switch off" once nothing is left;
+   - **⚠️ not available**, if the car was off then or the camera has already overwritten that time;
+   - **⏳**, if the session ended early. It continues next time.
+4. Clips are saved in two places:
+   - in the mirrored `Recordings/<date>/` folder;
+   - as hard links (no extra space) in `DEST/clips/<id>_<day>_<time>_<label>/`, with an `info.txt`.
+
+   `pull-from-pi.sh` copies them to your laptop with the rest of the data.
+
+Only commands from `TELEGRAM_CHAT_ID` are accepted. The reminders rely on the Pi being online during
+the session (Ethernet, or a second Wi-Fi adapter).
+
 ### Wi-Fi-only Pi (untested)
 
 If `CAM_IFACE` is the adapter the Pi uses for internet:

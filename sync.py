@@ -6,6 +6,8 @@ Run while connected to the dashcam Wi-Fi:
     python3 sync.py --images             # + timelapse/event JPEGs
     python3 sync.py --video              # + MP4 clips (slow: ~4.4 MB per minute)
     python3 sync.py --gpx-only           # offline: just rebuild the GPX files
+    python3 sync.py IP --clips FILE      # only the clips whose start time falls in the
+                                         # windows in FILE (JSON, written by car_watch.py)
 
 Mirrors http://<ip>:8080/HERO_IOTG/ into ./footage/, skipping files already
 complete. Partial downloads resume. MP4s without a 'moov' index (the clip
@@ -22,7 +24,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+CLIPS_FILE = sys.argv[sys.argv.index("--clips") + 1] if "--clips" in sys.argv else None
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--") and a != CLIPS_FILE]
 IP = ARGS[0] if ARGS else "192.168.1.1"
 BASE = f"http://{IP}" if ":" in IP else f"http://{IP}:8080"
 ROOT = "/HERO_IOTG/"
@@ -75,6 +78,30 @@ MEDIA_DIR = re.compile(r"/(Timelapse|Images)/")
 REC_DATE_DIR = re.compile(r"/Recordings/[^/]+/$")
 
 
+def list_dir(path):
+    """Full paths in a camera folder (folders end in '/'), or None if it doesn't exist."""
+    print(f"  listing {path[len(ROOT):] or '/'}")
+    t0 = time.time()
+    try:
+        with get(BASE + urllib.parse.quote(path)) as r:
+            html = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:                            # e.g. a day without a GPS folder
+            print("    (not found, skipped)")
+            return None
+        raise
+    if time.time() - t0 > 3:
+        print(f"    slow listing: {time.time() - t0:.1f} s, {len(html) // 1024} kB")
+    entries = []
+    for href, _mod, _size in ROW.findall(html):
+        if href.endswith("/.."):
+            continue
+        full = href if href.startswith("/") else path + href
+        if full.startswith(path) and full != path:
+            entries.append(full)
+    return entries
+
+
 def crawl(path, out):
     # Don't even list folders we won't download from: the timelapse and
     # recording folders hold hundreds of entries and are slow on a weak link.
@@ -84,24 +111,7 @@ def crawl(path, out):
         return crawl(path + "GPS/", out)           # only the GPS subfolder of each day
     if path in STATE["done_dirs"]:                  # older day, every GPS file already final
         return
-    print(f"  listing {path[len(ROOT):] or '/'}")
-    t0 = time.time()
-    try:
-        with get(BASE + urllib.parse.quote(path)) as r:
-            html = r.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        if e.code == 404:                            # e.g. a day without a GPS folder
-            print("    (not found, skipped)")
-            return
-        raise
-    if time.time() - t0 > 3:
-        print(f"    slow listing: {time.time() - t0:.1f} s, {len(html) // 1024} kB")
-    for href, _mod, _size in ROW.findall(html):
-        if href.endswith("/.."):
-            continue
-        full = href if href.startswith("/") else path + href
-        if not full.startswith(path) or full == path:
-            continue
+    for full in list_dir(path) or []:
         if full.endswith("/"):
             crawl(full, out)
         else:
@@ -298,6 +308,95 @@ def sync_one(i, remote, todo, width, stats, closed, newest_gps):
     print(f"    ok {human(size)} in {dt:.1f}s")
 
 
+# ---------------------------------------------------------------- wanted clips
+CLIP_EPOCH = re.compile(r"VIDEO_\d{14}_(\d{12,})\.mp4$", re.I)
+DAY_MS = 86400 * 1000
+
+
+def day_folder_ms(path):
+    """'.../Recordings/16-Nov-2026/' -> local midnight in epoch ms (None if not a day folder)."""
+    try:
+        return int(time.mktime(time.strptime(path.rstrip("/").rsplit("/", 1)[-1], "%d-%b-%Y")) * 1000)
+    except ValueError:
+        return None
+
+
+def clip_pass(windows_file):
+    """Download clips whose start time falls in a requested window.
+
+    windows_file: [{"id": 3, "from_ms": ..., "to_ms": ...}, ...]
+    Prints one 'clips-result: {json}' line for car_watch.py: per window the
+    matched clips and their state (done / partial / recording / failed), plus
+    the newest and oldest clip start on the card.
+    """
+    with open(windows_file) as f:
+        windows = json.load(f)
+    t0, nbytes = time.time(), 0
+    days = []
+    for dev in [e for e in list_dir(ROOT) or [] if e.endswith("/")]:
+        days += [e for e in list_dir(dev + "Recordings/") or [] if day_folder_ms(e) is not None]
+    days.sort(key=day_folder_ms)
+    result = {"windows": [], "newest_ms": None, "oldest_ms": None,
+              "oldest_day_ms": day_folder_ms(days[0]) if days else None}
+    if not days:
+        print("clips: no recording folders on the camera")
+        print("clips-result:", json.dumps(result))
+        return
+    # list the newest day (to know what's still recording) + days touching a window
+    need = {days[-1]}
+    for w in windows:
+        need |= {d for d in days
+                 if day_folder_ms(d) <= w["to_ms"] + 600000
+                 and day_folder_ms(d) + DAY_MS >= w["from_ms"] - 600000}
+    clips = {}                                       # remote path -> start ms
+    for d in sorted(need, key=day_folder_ms):
+        starts = {e: int(CLIP_EPOCH.search(e).group(1))
+                  for e in list_dir(d) or [] if CLIP_EPOCH.search(e)}
+        clips.update(starts)
+        if d == days[0] and starts:
+            result["oldest_ms"] = min(starts.values())
+    newest_dir = {e: s for e, s in clips.items() if e.startswith(days[-1])}
+    result["newest_ms"] = max(newest_dir.values()) if newest_dir else None
+    recording = max(newest_dir, key=newest_dir.get) if newest_dir else None
+
+    state = {}                                       # remote -> done/partial/recording/failed
+    for w in windows:
+        matched = sorted((r for r, s in clips.items() if w["from_ms"] <= s <= w["to_ms"]),
+                         key=clips.get)
+        print(f"clip #{w['id']}: {len(matched)} clip(s) on camera")
+        out = []
+        for remote in matched:
+            local = os.path.join(DEST, remote[len(ROOT):])
+            if remote not in state:
+                if os.path.exists(local):
+                    state[remote] = "done"
+                elif remote == recording:
+                    state[remote] = "recording"         # finished on a later pass/session
+                else:
+                    os.makedirs(os.path.dirname(local), exist_ok=True)
+                    print(f"  {os.path.basename(local)}  downloading")
+                    try:
+                        size, dt = download(remote, local)
+                        nbytes += size
+                        if mp4_complete(local + ".part") or remote_size(remote) == size:
+                            # complete, or the camera never wrote an index (power cut): keep as is
+                            os.replace(local + ".part", local)
+                            state[remote] = "done"
+                            print(f"    ok {human(size)} in {dt:.1f}s")
+                        else:
+                            state[remote] = "partial"
+                            print("    incomplete, resumes next pass")
+                    except Exception as e:
+                        state[remote] = "failed"
+                        print(f"    FAIL: {e}")
+            size = os.path.getsize(local) if os.path.exists(local) else 0
+            out.append({"remote": remote, "local": remote[len(ROOT):], "start_ms": clips[remote],
+                        "state": state[remote], "bytes": size})
+        result["windows"].append({"id": w["id"], "clips": out})
+    result.update(bytes=nbytes, secs=round(time.time() - t0, 1))
+    print("clips-result:", json.dumps(result))
+
+
 # ---------------------------------------------------------------- GPS -> GPX
 GPS_FIELD = re.compile(r"^(T|LT|LG|Alt)-?([NSEW]?)(-?[\d.]+)$")
 
@@ -357,6 +456,9 @@ def build_gpx():
 
 
 if __name__ == "__main__":
+    if CLIPS_FILE:
+        clip_pass(CLIPS_FILE)
+        sys.exit(0)
     if "--gpx-only" not in sys.argv:
         sync()
     build_gpx()

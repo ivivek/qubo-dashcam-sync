@@ -14,8 +14,9 @@ exec 9>"$LOCAL/.pull.lock"
 flock -n 9 || { echo "$(date '+%F %T') previous pull still running - skipped"; exit 0; }
 
 # BatchMode: never hang waiting for a password (cron has no terminal)
+# -H: clips/ holds hard links to Recordings/ files - copy them once, not twice
 # .sync_state.json belongs to whichever machine ran sync.py; *.part are unfinished downloads
-out=$(rsync -a --partial --timeout=60 --stats \
+out=$(rsync -aH --partial --timeout=60 --stats \
         -e "ssh -o BatchMode=yes -o ConnectTimeout=10" \
         --exclude=.sync_state.json --exclude='*.part' --exclude=.pull.lock \
         "$PI:$REMOTE/" "$LOCAL/" 2>&1) || { echo "$(date '+%F %T') FAILED: $(echo "$out" | tail -2 | tr '\n' ' ')"; exit 1; }

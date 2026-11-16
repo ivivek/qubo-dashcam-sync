@@ -1,8 +1,13 @@
 # qubo-dashcam-sync
 
-Pull GPS tracks (and optionally timelapse photos / video) off a **Qubo GPS dashcam** without the
-phone app. A Raspberry Pi in the garage watches for the dashcam's Wi-Fi, joins it whenever the
-car is nearby with the ignition on, downloads what's new, and sends Telegram notifications.
+Sync a **Qubo GPS dashcam** to a Raspberry Pi without the phone app. A Pi in the garage watches
+for the dashcam's Wi-Fi, joins it whenever the car is nearby with the ignition on, downloads
+what's new, and sends Telegram notifications. It syncs:
+
+- **GPS tracks**: always. Turned into one GPX file per day.
+- **Timelapse and event photos**: optional (`--images`).
+- **Video clips on request**: message the bot `clip 08:42 deer crossing`, and the matching clips
+  are fetched the next time the car is home ([details](#video-clips-on-request-telegram-clip)).
 
 ```
 car arrives / leaves  ->  Pi sees "DashCam GPS_<MAC>" Wi-Fi  ->  join  ->  sync passes every 20 s

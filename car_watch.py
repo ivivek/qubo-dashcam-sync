@@ -20,6 +20,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -67,6 +68,7 @@ STATE_DIR = os.path.join(HERE, "state")
 os.makedirs(STATE_DIR, exist_ok=True)
 PENDING = os.path.join(STATE_DIR, "pending_telegram.json")
 NM_PROFILE = "dashcam"
+HOME_FILE = os.path.join(STATE_DIR, "home_wifi.txt")   # home connection to restore after a session
 
 
 def log(*a):
@@ -142,8 +144,35 @@ LAST_CONNECT_ERROR = [""]
 def disconnect_camera(home_conn):
     sh("nmcli", "con", "down", NM_PROFILE)
     if home_conn:                                   # single-adapter setup: go back home
-        rc, out = sh("nmcli", "con", "up", home_conn, timeout=60)
-        log(f"restored '{home_conn}': {'ok' if rc == 0 else out[-200:]}")
+        for attempt in range(1, 6):
+            t0 = time.time()
+            rc, out = sh("nmcli", "--wait", "30", "con", "up", home_conn, timeout=40)
+            if rc == 0:
+                log(f"restored home Wi-Fi '{home_conn}' in {time.time() - t0:.1f} s")
+                break
+            log(f"restore '{home_conn}' attempt {attempt} failed: {out.strip()[-200:]}")
+            time.sleep(10)
+        else:
+            log("could not restore home Wi-Fi - leaving it to NetworkManager autoconnect")
+    try:
+        os.remove(HOME_FILE)
+    except FileNotFoundError:
+        pass
+    _wake.set()                                     # send queued Telegram messages now
+
+
+def recover_network():
+    """Startup: undo a session that was cut short (crash, power loss, kill -9)."""
+    if NM_PROFILE in sh("nmcli", "-t", "-f", "NAME", "con", "show", "--active")[1].splitlines():
+        log("camera profile still active from an interrupted session - disconnecting")
+        home = open(HOME_FILE).read().strip() if os.path.exists(HOME_FILE) else None
+        disconnect_camera(home)
+
+
+def remember_home(home_conn):
+    if home_conn:
+        with open(HOME_FILE, "w") as f:
+            f.write(home_conn)
 
 
 def camera_reachable():
@@ -374,6 +403,9 @@ def run_session(t_detect, t_last_absent):
     event("detect", f"📡 {clock(t_detect)} Camera detected ({since})")
     before_files, before_pts = file_snapshot(), read_points()
     home = active_connection(C["CAM_IFACE"])
+    if home:
+        log(f"'{C['CAM_IFACE']}' is on home Wi-Fi '{home}' - leaving it for the session")
+    remember_home(home)
     passes, errors, first_done, last_err, joined = 0, [], False, None, False
     rel = lambda: f"+{time.time() - t_detect:.0f} s"  # noqa: E731
     try:
@@ -477,6 +509,9 @@ def main():
     if "--simulate" in sys.argv:
         simulate()
         return
+    # systemctl stop/restart sends SIGTERM: raise SystemExit so `finally` restores home Wi-Fi
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    recover_network()
     log(f"watching for '{C['CAM_SSID']}' on {C['CAM_IFACE']}, dest {C['DEST']}")
     event("start", f"🟢 {clock(time.time())} Watcher started: scanning for camera every "
                    f"{C['SCAN_INTERVAL']} s on {C['CAM_IFACE']} (sync: {C['SYNC_ARGS'] or 'GPS only'})")

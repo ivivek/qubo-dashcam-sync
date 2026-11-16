@@ -39,6 +39,7 @@ Rough data per driving hour: GPS ~200 kB, photos ~6.5 MB, video ~260 MB. The cam
 | `car_watch.py` | Pi watcher service (detect, join, sync, notify) |
 | `sync.py` | Downloader: `python3 sync.py [IP[:port]] [--images] [--video] [--state] [--gpx-only]` |
 | `install-pi.sh` | Installs the systemd service on the Pi |
+| `pull-from-pi.sh` | Copies new data from the Pi to another machine (rsync; cron-friendly): `bash pull-from-pi.sh user@pi-host` |
 | `dashcam.conf.example` | Config template (copied to `dashcam.conf`, which git ignores) |
 | `dashcam-watch.service` | systemd unit template |
 | `analyze.py` / `sanitize.py` | Privacy-safe summaries: counts and structure only, no coordinates or frames |

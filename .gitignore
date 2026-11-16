@@ -16,3 +16,6 @@ state/
 
 __pycache__/
 *.pyc
+
+# Host-specific notes for Claude
+CLAUDE.local.md

@@ -88,6 +88,33 @@ still unknown (all data so far was captured with the car parked, no GPS fix).
 - Binary `.bin`/`.txt` state files are undecoded (not needed so far). `Main`/`BK_` pairs are primary + backup copies.
 - After ~1 h powered (parked): 46 videos, 211 images, 12 GPS/state files.
 
+#### File reference — known
+
+| File / folder | What it holds |
+|---|---|
+| `Recordings/<date>/VIDEO_<localtime>_<epoch-ms>.mp4` | 60 s clip, HEVC 1920×1080 @ 30 fps + AAC, 3.4–6.6 MB. The newest clip is still being written (no `moov`, unplayable). |
+| `Recordings/<date>/GPS/G_<epoch-ms>.gps` | GPS text track, one line every 1–4 s: time, lat, lon, heading, speed km/h, trip km, per-file km, altitude (see 1.7). New file every ~5 min of driving. |
+| `Timelapse/<date>/DRIVE_MODE/1/timelapse_<epoch-ms>.jpeg` | 640×480 photo (~22 KB) every ~12.3 s while the camera is powered. |
+| `Images/<date>/EVENT_<localtime>.jpeg` | 640×480 event photo. Trigger unknown (G-sensor? button?). |
+| `Emergency00/` | Empty so far. Presumably locked emergency clips. |
+
+#### File reference — unknown (binary, not decoded)
+
+| File | Size / behaviour | Best guess |
+|---|---|---|
+| `rootTableMain.bin`, `rootTableBk.bin` | 768 B | Top-level card index |
+| `heartbeat.txt` | 8 B binary | Liveness marker or timestamp |
+| `Images/rideStart.txt` | 88 B binary | Current trip start time/position |
+| `Images/<date>/<date>_EVENT.bin`, `BK_<date>_EVENT.bin` | 344 B | That day's event-photo index |
+| `Recordings/<date>/<date>_DB.bin`, `BK_<date>_DB.bin` | +112 B per clip | That day's clip index (one 112 B entry per video) |
+| `Recordings/<date>/folderTableMain.bin`, `folderTableBk.bin` | 512 B | Day folder index |
+| `Recordings/<date>/GPS/gps.bin`, `gpsBk.bin` | binary | GPS index/buffer |
+| `Recordings/<date>/GPS/activeGps.txt` | 80 B binary | Pointer to the GPS file being written |
+
+None of these are needed for sync. `sync.py --state` downloads them if we ever want to decode them.
+Other unknowns: port 8081 (resets every request; probably the app's control channel) and the RTSP
+live-view path on 554 (every guess → 400).
+
 ### 1.6 Timestamps
 
 - `ddmmyyyyHHMMSS` in names = **local time** (camera clock timezone).

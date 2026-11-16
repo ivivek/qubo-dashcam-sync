@@ -368,6 +368,13 @@ def poll_loop():
         offset = int(open(OFFSET_FILE).read())
     except (OSError, ValueError):
         offset = 0
+    try:                                             # the "/" menu + autocomplete in Telegram
+        tg("setMyCommands", {"commands": json.dumps([
+            {"command": "clip", "description": "Save video: now, or e.g. 08:42 5m label"},
+            {"command": "clips", "description": "List clip requests"},
+            {"command": "help", "description": "How to use clip"}])})
+    except Exception as e:
+        log(f"telegram setMyCommands failed: {str(e)[:100]}")
     failing = False
     while True:
         try:

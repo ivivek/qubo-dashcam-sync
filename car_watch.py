@@ -52,6 +52,8 @@ def load_conf():
         "NOTIFY_LEVEL": "debug",       # debug = start/detected/connected/transfer/disconnected + summary
                                        # summary = only the end-of-session summary
         "COOLDOWN": "180",             # s to ignore the camera after a session (flapping signal)
+        "RETRY_COOLDOWN": "20",        # s before retrying after a failed session (camera booting)
+        "CAM_BOOT_WAIT": "45",         # s to wait for the file server after joining
         "DEST_OWNER": "",              # e.g. pi:pi - chown synced files (service runs as root)
     }
     path = os.path.join(HERE, "dashcam.conf")
@@ -182,12 +184,39 @@ def remember_home(home_conn):
             f.write(home_conn)
 
 
-def camera_reachable():
-    try:
-        with urllib.request.urlopen(f"http://{C['CAM_IP']}:8080/", timeout=4):
-            return True
-    except Exception:
+def camera_reachable(tries=3):
+    """File server answers. Retries so one dropped request doesn't end a session."""
+    for attempt in range(tries):
+        try:
+            ip = C["CAM_IP"]
+            with urllib.request.urlopen(f"http://{ip if ':' in ip else ip + ':8080'}/", timeout=4):
+                return True
+        except Exception:
+            if attempt < tries - 1:
+                time.sleep(2)
+    return False
+
+
+def wait_camera_ready():
+    """Right after joining, the camera may still be booting: its Wi-Fi comes up
+    before its file server. Wait for it. Returns seconds waited, or None."""
+    t0 = time.time()
+    while time.time() - t0 < int(C["CAM_BOOT_WAIT"]):
+        if camera_reachable(tries=1):
+            return time.time() - t0
+        time.sleep(2)
+    return None
+
+
+_last_sent = {}
+
+
+def once_per(key, secs):
+    """True at most once per `secs` for `key` - stops repeat notifications on retries."""
+    if time.time() - _last_sent.get(key, 0) < secs:
         return False
+    _last_sent[key] = time.time()
+    return True
 
 
 # ------------------------------------------------------------------ snapshot / stats
@@ -570,7 +599,7 @@ def run_session(t_detect, t_last_absent):
     log(f"camera '{C['CAM_SSID']}' visible -> session start")
     event("detect", f"📡 {clock(t_detect)} Camera detected ({since})")
     due = STORE.pending()
-    if due:
+    if due and once_per("clip-due", 600):
         mb, secs = clip_eta(due)
         event("action", f"🎬 {clock(t_detect)} Clip {', '.join('#' + str(i['id']) for i in due)} due: "
                         f"keep the ignition ON {fmt_dur(secs + 20)} (~{mb:.0f} MB). "
@@ -586,11 +615,19 @@ def run_session(t_detect, t_last_absent):
     try:
         if not connect_camera():
             errors.append("could not join camera Wi-Fi")
-            event("connect", f"❌ {clock(time.time())} Could not join camera Wi-Fi ({rel()}): "
-                                  f"{LAST_CONNECT_ERROR[0]}")
+            if once_per("connect:" + LAST_CONNECT_ERROR[0], 600):
+                event("connect", f"❌ {clock(time.time())} Could not join camera Wi-Fi ({rel()}): "
+                                      f"{LAST_CONNECT_ERROR[0]}")
             return
         joined = True
         event("connect", f"🔗 {clock(time.time())} Joined camera Wi-Fi ({rel()})")
+        waited = wait_camera_ready()
+        if waited is None:
+            errors.append(f"joined camera Wi-Fi but its file server didn't answer within "
+                          f"{C['CAM_BOOT_WAIT']} s")
+            log(errors[-1])
+            return
+        log(f"camera file server ready after {waited:.0f} s")
         env = dict(os.environ, DASHCAM_DEST=C["DEST"])
         while camera_reachable():
             passes += 1
@@ -629,6 +666,7 @@ def run_session(t_detect, t_last_absent):
         if C["DEST_OWNER"]:
             sh("chown", "-R", C["DEST_OWNER"], C["DEST"], timeout=300)
         notify(before_files, before_pts, t_detect, t_end, passes, errors)
+    return passes
 
 
 def notify(before_files, before_pts, t_start, t_end, passes, errors):
@@ -648,6 +686,9 @@ def notify(before_files, before_pts, t_start, t_end, passes, errors):
             gpx = max(gpxs, key=os.path.getmtime) if gpxs else None   # names are dd-Mon-yyyy
     else:
         text = "⚠️ Dashcam seen but sync failed: " + "; ".join(errors or ["unknown"])
+        if not once_per(text, 600):                   # retrying every ~30 s: don't repeat it
+            log("same failure as before - no notification")
+            return
     queue_message(text, gpx)
 
 
@@ -703,11 +744,13 @@ def main():
             if scan_s > int(C["SCAN_INTERVAL"]):
                 log(f"slow scan: {scan_s:.1f} s")
             if visible:
-                run_session(time.time(), t_last_absent)
+                ok = run_session(time.time(), t_last_absent)
                 t_last_absent = None
                 if "--once" not in sys.argv:
-                    log(f"cooldown {C['COOLDOWN']} s")
-                    time.sleep(int(C["COOLDOWN"]))
+                    # after a failure the camera is probably still there (booting): retry soon
+                    wait = int(C["COOLDOWN"] if ok else C["RETRY_COOLDOWN"])
+                    log(f"cooldown {wait} s" + ("" if ok else " (session failed - retrying soon)"))
+                    time.sleep(wait)
             else:
                 t_last_absent = t_scan
                 if "--once" in sys.argv:

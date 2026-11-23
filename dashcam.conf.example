@@ -26,6 +26,10 @@ SCAN_INTERVAL=5
 RESYNC_INTERVAL=20
 SYNC_TIMEOUT=900
 COOLDOWN=180
+# after a failed session (camera still booting / flaky join): retry this soon instead
+RETRY_COOLDOWN=20
+# after joining, wait this long for the camera's file server (it starts after its Wi-Fi)
+CAM_BOOT_WAIT=45
 
 # --- Telegram ---
 # Create a bot with @BotFather -> token. Send the bot any message, then open

@@ -30,7 +30,7 @@ known about the camera (ports, SD card layout, GPS format, timing).
 - The file server on `192.168.1.1:8080` has no auth and **allows PUT/DELETE**. Only ever use
   GET/HEAD (plus OPTIONS/PROPFIND in probe scripts). Never write or delete on the camera.
 - Claude can't reach the camera. The laptop/Pi loses internet while on the camera Wi-Fi, and the
-  camera is only on with the car's ignition. Test against a **mock camera** instead:
+  camera is only on with the car's ignition. Test against the **mock camera** `tools/mockcam.py` instead:
   - a local `http.server` that serves the "Index of" HTML format (see DESIGN.md §1.4);
   - Range/HEAD support;
   - synthetic files only: fake MP4 boxes `ftyp`+`mdat`(+`moov`), dummy `.gps`;

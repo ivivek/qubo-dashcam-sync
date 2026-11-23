@@ -48,6 +48,7 @@ Rough data per driving hour: GPS ~200 kB, photos ~6.5 MB, video ~260 MB. The cam
 | `dashcam.conf.example` | Config template (copied to `dashcam.conf`, which git ignores) |
 | `dashcam-watch.service` | systemd unit template |
 | `analyze.py` / `sanitize.py` | Privacy-safe summaries: counts and structure only, no coordinates or frames |
+| `tools/mockcam.py` | Mock camera with synthetic files, for testing without the car |
 | `probe.sh` / `explore.py` | One-off tools used to discover the camera's IP, ports and SD card layout |
 | `DESIGN.md` | Camera facts, GPS file format, Android app design |
 
